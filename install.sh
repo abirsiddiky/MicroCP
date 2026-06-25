@@ -160,8 +160,8 @@ if [ ! -x /opt/microcp/microcp ]; then
     fail "Installation failed. /opt/microcp/microcp is not executable."
 fi
 
-ADMIN_PASSWORD=$(tr -dc 'A-Za-z0-9!@#%^&*' </dev/urandom | head -c 16)
-SECRET_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 64)
+ADMIN_PASSWORD=$(openssl rand -base64 12)
+SECRET_KEY=$(openssl rand -hex 32)
 
 log "Configuring MicroCP environment..."
 cat > /etc/microcp.env <<EOF
