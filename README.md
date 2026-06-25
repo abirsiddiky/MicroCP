@@ -230,7 +230,7 @@ Minimum:
 
 Recommended:
 
-* 2 CPU Cores
+* 1 CPU Cores
 * 1 GB RAM
 * 20 GB SSD
 
