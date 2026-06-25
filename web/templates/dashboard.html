@@ -1,4 +1,4 @@
-{{define "content"}}
+{{template "header.html" .}}
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
     <div class="bg-[#1e293b] p-4 rounded border border-[#334155] shadow-sm">
         <div class="flex justify-between items-start">
@@ -25,4 +25,4 @@
         <p class="text-2xl font-mono text-white mt-1">{{.DatabasesCount}}</p>
     </div>
 </div>
-{{end}}
+{{template "footer.html" .}}

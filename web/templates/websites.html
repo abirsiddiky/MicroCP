@@ -1,4 +1,4 @@
-{{define "content"}}
+{{template "header.html" .}}
 <div class="flex justify-between items-center mb-6">
     <h1 class="text-2xl font-bold text-white">Websites</h1>
     <a href="/websites/create" class="px-2 py-1 bg-[#6366f1] text-white text-xs font-bold rounded shadow-sm hover:bg-indigo-500">Add Website</a>
@@ -21,4 +21,4 @@
         </tbody>
     </table>
 </div>
-{{end}}
+{{template "footer.html" .}}
