@@ -1,13 +1,26 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "Starting MicroCP Installation..."
-echo "================================"
+LOG_FILE="/var/log/microcp/install.log"
+mkdir -p /var/log/microcp
+touch "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
-# Check if running as root
+log() {
+    echo -e "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+}
+
+fail() {
+    echo -e "\n[!] ERROR: $1"
+    echo "Check the installation log at $LOG_FILE for details."
+    exit 1
+}
+
+log "Starting MicroCP Installation..."
+log "================================"
+
 if [ "$EUID" -ne 0 ]; then
-  echo "Please run this installer as root."
-  exit 1
+  fail "Please run this installer as root."
 fi
 
 # Detect OS
@@ -16,28 +29,24 @@ if [ -f /etc/os-release ]; then
     OS=$ID
     VERSION_ID=$VERSION_ID
 else
-    echo "Cannot detect OS. Only Debian 12/13 and Ubuntu 22.04/24.04 are supported."
-    exit 1
+    fail "Cannot detect OS. Only Debian 12/13 and Ubuntu 22.04/24.04 are supported."
 fi
 
 if [[ "$OS" == "ubuntu" && ("$VERSION_ID" == "22.04" || "$VERSION_ID" == "24.04") ]]; then
-    echo "Detected Ubuntu $VERSION_ID"
+    log "Detected Ubuntu $VERSION_ID"
 elif [[ "$OS" == "debian" && ("$VERSION_ID" == "12" || "$VERSION_ID" == "13") ]]; then
-    echo "Detected Debian $VERSION_ID"
+    log "Detected Debian $VERSION_ID"
 else
-    echo "Unsupported OS: $OS $VERSION_ID. Only Debian 12/13 and Ubuntu 22.04/24.04 are supported."
-    exit 1
+    fail "Unsupported OS: $OS $VERSION_ID. Only Debian 12/13 and Ubuntu 22.04/24.04 are supported."
 fi
 
-# Set non-interactive mode for apt
 export DEBIAN_FRONTEND=noninteractive
 
-echo "Updating system and installing dependencies..."
+log "Updating system and installing dependencies..."
 apt-get update -y
 apt-get upgrade -y
-apt-get install -y curl wget unzip tar jq ufw fail2ban certbot python3-certbot-nginx mariadb-server nginx sqlite3 python3-bcrypt
+apt-get install -y curl wget unzip tar jq ufw fail2ban certbot python3-certbot-nginx mariadb-server nginx sqlite3 python3-bcrypt git build-essential iproute2
 
-# PHP repository setup
 if [[ "$OS" == "ubuntu" ]]; then
     apt-get install -y software-properties-common
     add-apt-repository ppa:ondrej/php -y
@@ -49,76 +58,111 @@ fi
 
 apt-get update -y
 
-echo "Installing PHP versions..."
+log "Installing PHP versions..."
 PHP_VERSIONS=("8.1" "8.2" "8.3")
 for VER in "${PHP_VERSIONS[@]}"; do
-    apt-get install -y php${VER}-fpm php${VER}-mysql php${VER}-curl php${VER}-xml php${VER}-mbstring php${VER}-zip
+    apt-get install -y php${VER}-fpm php${VER}-mysql php${VER}-curl php${VER}-xml php${VER}-mbstring php${VER}-zip || true
 done
 
-echo "Installing WP-CLI..."
-curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+log "Installing WP-CLI..."
+curl -sSO https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
 chmod +x wp-cli.phar
 mv wp-cli.phar /usr/local/bin/wp
 
-# Create required directories
-echo "Creating MicroCP directories..."
+log "Creating MicroCP directories..."
 mkdir -p /opt/microcp
 mkdir -p /var/lib/microcp
 mkdir -p /backup
 mkdir -p /var/www
 
-# Download latest MicroCP release
-echo "Downloading latest MicroCP release..."
-REPO="abirsiddiky/MicroCP"
-LATEST_RELEASE=$(curl -s https://api.github.com/repos/$REPO/releases/latest | grep "browser_download_url.*microcp_linux_amd64" | cut -d : -f 2,3 | tr -d \" | xargs)
-
-if [ -z "$LATEST_RELEASE" ]; then
-    echo "Warning: Could not fetch latest release URL. This might be because the repository is private or has no releases yet."
-    echo "Attempting to build from source or copy local binary..."
-    
-    if [ -f "./microcp" ]; then
-        cp ./microcp /opt/microcp/microcp
-        chmod +x /opt/microcp/microcp
-    else
-        echo "MicroCP binary not found locally."
+build_from_source() {
+    log "Attempting to build from source..."
+    if ! command -v go >/dev/null 2>&1; then
+        log "Go is not installed. Installing Go..."
+        wget -q https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+        rm go1.22.4.linux-amd64.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
     fi
     
-    if [ -d "./web" ]; then
-        cp -r ./web /opt/microcp/
+    TEMP_DIR=$(mktemp -d)
+    log "Cloning repository..."
+    git clone https://github.com/abirsiddiky/MicroCP.git "$TEMP_DIR"
+    cd "$TEMP_DIR"
+    
+    log "Downloading go modules..."
+    go mod tidy
+    
+    log "Building MicroCP..."
+    go build -ldflags="-s -w" -o microcp ./cmd/microcp
+    
+    if [ ! -f "microcp" ]; then
+        fail "Source build failed. Binary not found."
+    fi
+    
+    install -m 755 microcp /opt/microcp/microcp
+    cp -r web /opt/microcp/ || true
+    
+    cd /
+    rm -rf "$TEMP_DIR"
+}
+
+log "Downloading latest MicroCP release..."
+REPO="abirsiddiky/MicroCP"
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/$REPO/releases/latest | grep "browser_download_url.*microcp_linux_amd64" | cut -d : -f 2,3 | tr -d \" | xargs || true)
+
+if [ -n "$LATEST_RELEASE" ]; then
+    log "Downloading binary from $LATEST_RELEASE"
+    wget -qO microcp "$LATEST_RELEASE" || true
+    if [ -f "microcp" ] && [ -s "microcp" ]; then
+        install -m 755 microcp /opt/microcp/microcp
+        rm microcp
+    else
+        log "Download failed or file is empty."
+        build_from_source
     fi
 else
-    # Download binary directly if available
-    wget -qO /opt/microcp/microcp $LATEST_RELEASE
-    chmod +x /opt/microcp/microcp
+    log "Warning: Could not fetch latest release URL."
+    build_from_source
 fi
 
-# Generate admin credentials
+if [ ! -f /opt/microcp/microcp ]; then
+    fail "Installation failed. /opt/microcp/microcp does not exist."
+fi
+
+if [ ! -x /opt/microcp/microcp ]; then
+    fail "Installation failed. /opt/microcp/microcp is not executable."
+fi
+
 ADMIN_PASSWORD=$(tr -dc 'A-Za-z0-9!@#%^&*' </dev/urandom | head -c 16)
 SECRET_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 64)
 
-echo "Configuring MicroCP environment..."
+log "Configuring MicroCP environment..."
 cat > /etc/microcp.env <<EOF
 MICROCP_PORT=8080
 MICROCP_SECRET=$SECRET_KEY
 EOF
 chmod 600 /etc/microcp.env
 
-# Hash password and insert into SQLite
-echo "Generating secure admin credentials..."
+log "Generating secure admin credentials..."
 python3 -c "
-import sqlite3, bcrypt
-password = b'${ADMIN_PASSWORD}'
-hashed = bcrypt.hashpw(password, bcrypt.gensalt()).decode('utf-8')
-conn = sqlite3.connect('/var/lib/microcp/microcp.db')
-c = conn.cursor()
-c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-c.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (\"admin_password\", ?)', (hashed,))
-conn.commit()
-conn.close()
-" || echo "Note: Could not set generated password. Default password may still be 'admin'."
+import sqlite3, bcrypt, sys
+try:
+    password = b'${ADMIN_PASSWORD}'
+    hashed = bcrypt.hashpw(password, bcrypt.gensalt()).decode('utf-8')
+    conn = sqlite3.connect('/var/lib/microcp/microcp.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    c.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (\"admin_password\", ?)', (hashed,))
+    conn.commit()
+    conn.close()
+except Exception as e:
+    print(f'Error setting password: {e}', file=sys.stderr)
+    sys.exit(1)
+" || log "Note: Could not set generated password in database. Default password may still be 'admin'."
 
-# Create systemd service
-echo "Creating systemd service..."
+log "Creating systemd service..."
 cat > /etc/systemd/system/microcp.service <<EOF
 [Unit]
 Description=MicroCP Web Hosting Control Panel
@@ -140,22 +184,71 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+log "Starting service..."
 systemctl daemon-reload
 systemctl enable microcp
+systemctl restart microcp
 
-if [ -f "/opt/microcp/microcp" ]; then
-    systemctl restart microcp
+log "Waiting 5 seconds for service startup..."
+sleep 5
+
+log "Validating service status..."
+if ! systemctl is-active --quiet microcp; then
+    journalctl -u microcp -n 20 --no-pager
+    fail "MicroCP service failed to start or crashed."
 fi
 
-# Configure UFW
-echo "Configuring firewall..."
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 8080/tcp
-ufw --force enable
+log "Validating listening port..."
+if ! ss -tulpn | grep -q ":8080 "; then
+    fail "MicroCP is not listening on port 8080."
+fi
 
-# Get public IP
+log "Validating HTTP response..."
+if ! curl -s http://127.0.0.1:8080 >/dev/null; then
+    fail "MicroCP did not respond to HTTP request on port 8080."
+fi
+
+log "Configuring firewall..."
+ufw allow 22/tcp || true
+ufw allow 80/tcp || true
+ufw allow 443/tcp || true
+ufw allow 8080/tcp || true
+ufw --force enable || true
+
+log "Installing microcp CLI tools..."
+cat > /usr/local/bin/microcp <<'EOF'
+#!/bin/bash
+if [ "$1" == "doctor" ]; then
+    echo "=== MicroCP System Health Check ==="
+    
+    echo -n "Binary check: "
+    if [ -x /opt/microcp/microcp ]; then echo "OK"; else echo "FAILED (Not found or not executable)"; fi
+    
+    echo -n "Service status: "
+    if systemctl is-active --quiet microcp; then echo "OK (Active)"; else echo "FAILED (Inactive/Dead)"; fi
+    
+    echo -n "Port 8080: "
+    if ss -tulpn | grep -q ":8080 "; then echo "OK (Listening)"; else echo "FAILED (Not listening)"; fi
+    
+    echo -n "Database (SQLite): "
+    if [ -f /var/lib/microcp/microcp.db ]; then echo "OK"; else echo "FAILED (Not found)"; fi
+    
+    echo -n "Nginx status: "
+    if systemctl is-active --quiet nginx; then echo "OK (Active)"; else echo "FAILED (Inactive)"; fi
+    
+    echo -n "MariaDB status: "
+    if systemctl is-active --quiet mariadb; then echo "OK (Active)"; else echo "FAILED (Inactive)"; fi
+    
+    echo -n "PHP 8.2-FPM status: "
+    if systemctl is-active --quiet php8.2-fpm; then echo "OK (Active)"; else echo "WARNING (Inactive or not installed)"; fi
+
+    exit 0
+fi
+
+echo "Usage: microcp doctor"
+EOF
+chmod +x /usr/local/bin/microcp
+
 PUBLIC_IP=$(curl -s https://api.ipify.org || curl -s https://icanhazip.com || echo "YOUR_SERVER_IP")
 
 echo "========================================================"
@@ -166,3 +259,4 @@ echo "Username:  admin"
 echo "Password:  ${ADMIN_PASSWORD}"
 echo "========================================================"
 echo "Please save these credentials securely."
+
