@@ -158,8 +158,8 @@ if [ ! -x /opt/microcp/microcp ]; then
     fail "Installation failed. /opt/microcp/microcp is not executable."
 fi
 
-ADMIN_PASSWORD=$(tr -dc 'A-Za-z0-9!@#%^&*' </dev/urandom | head -c 16)
-SECRET_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 64)
+ADMIN_PASSWORD=$(openssl rand -base64 12)
+SECRET_KEY=$(openssl rand -hex 32)
 
 log "Configuring MicroCP environment..."
 cat > /etc/microcp.env <<EOF
@@ -222,7 +222,7 @@ if ! systemctl is-active --quiet microcp; then
 fi
 
 log "Validating listening port..."
-if ! ss -tulpn | grep -q ":8080 "; then
+if ! ss -tulpn | grep ":8080 " > /dev/null; then
     fail "MicroCP is not listening on port 8080."
 fi
 
@@ -251,7 +251,7 @@ if [ "$1" == "doctor" ]; then
     if systemctl is-active --quiet microcp; then echo "OK (Active)"; else echo "FAILED (Inactive/Dead)"; fi
     
     echo -n "Port 8080: "
-    if ss -tulpn | grep -q ":8080 "; then echo "OK (Listening)"; else echo "FAILED (Not listening)"; fi
+    if ss -tulpn | grep ":8080 " > /dev/null; then echo "OK (Listening)"; else echo "FAILED (Not listening)"; fi
     
     echo -n "Database (SQLite): "
     if [ -f /var/lib/microcp/microcp.db ]; then echo "OK"; else echo "FAILED (Not found)"; fi
