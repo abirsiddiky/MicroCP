@@ -19,7 +19,7 @@ rm -rf /opt/microcp
 rm -f /etc/microcp.env
 rm -f /usr/local/bin/microcp
 
-read -p "Do you want to delete all MicroCP data (including databases and websites)? [y/N] " -n 1 -r
+read -p "Do you want to delete all MicroCP data (including databases and websites)? [y/N] " -n 1 -r < /dev/tty
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]
 then
