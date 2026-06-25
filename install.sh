@@ -86,16 +86,32 @@ build_from_source() {
         export PATH=$PATH:/usr/local/go/bin
     fi
     
+    # Prevent OOM kills on low RAM VPS (specifically for modernc.org/sqlite)
+    TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
+    if [ "$TOTAL_RAM" -lt 2048 ]; then
+        log "Low RAM detected (${TOTAL_RAM}MB). Setting up temporary swap for compilation to prevent OOM kills..."
+        if [ ! -f /swapfile ]; then
+            fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            log "Temporary swap enabled."
+            SWAP_ADDED=1
+        fi
+    fi
+    
     TEMP_DIR=$(mktemp -d)
     log "Cloning repository..."
-    git clone https://github.com/abirsiddiky/MicroCP.git "$TEMP_DIR"
+    git clone https://github.com/abirsiddiky/MicroCP.git "$TEMP_DIR" || fail "Failed to clone repository"
     cd "$TEMP_DIR"
     
     log "Downloading go modules..."
-    go mod tidy
+    go mod tidy || fail "Failed to download Go modules"
     
-    log "Building MicroCP..."
-    go build -ldflags="-s -w" -o microcp ./cmd/microcp
+    log "Building MicroCP (this may take a few minutes)..."
+    if ! GOMAXPROCS=1 go build -p 1 -ldflags="-s -w" -o microcp ./cmd/microcp; then
+        fail "Source build failed. The Go compiler encountered an error or ran out of memory."
+    fi
     
     if [ ! -f "microcp" ]; then
         fail "Source build failed. Binary not found."
@@ -106,6 +122,13 @@ build_from_source() {
     
     cd /
     rm -rf "$TEMP_DIR"
+    
+    # Remove temporary swap if we added it
+    if [ "${SWAP_ADDED:-0}" -eq 1 ]; then
+        log "Removing temporary swap..."
+        swapoff /swapfile || true
+        rm -f /swapfile
+    fi
 }
 
 log "Downloading latest MicroCP release..."
