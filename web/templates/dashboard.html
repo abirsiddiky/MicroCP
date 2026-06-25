@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="bg-[#1e293b] p-4 rounded border border-[#334155] shadow-sm">
+        <div class="flex justify-between items-start">
+            <h3 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">CPU Usage</h3>
+        </div>
+        <p class="text-2xl font-mono text-white mt-1"><span id="cpu-value">0</span>%</p>
+        <div class="w-full bg-[#0f172a] h-1 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#6366f1] h-full" id="cpu-bar" style="width: 0%"></div>
+        </div>
+    </div>
+    <div class="bg-[#1e293b] p-4 rounded border border-[#334155] shadow-sm">
+        <h3 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">RAM Usage</h3>
+        <p class="text-2xl font-mono text-white mt-1"><span id="ram-percent">0</span>%</p>
+        <div class="w-full bg-[#0f172a] h-1 rounded-full mt-3 overflow-hidden">
+            <div class="bg-green-500 h-full" id="ram-bar" style="width: 0%"></div>
+        </div>
+    </div>
+    <div class="bg-[#1e293b] p-4 rounded border border-[#334155] shadow-sm">
+        <h3 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Websites</h3>
+        <p class="text-2xl font-mono text-white mt-1">{{.WebsitesCount}}</p>
+    </div>
+    <div class="bg-[#1e293b] p-4 rounded border border-[#334155] shadow-sm">
+        <h3 class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Databases</h3>
+        <p class="text-2xl font-mono text-white mt-1">{{.DatabasesCount}}</p>
+    </div>
+</div>
+{{end}}

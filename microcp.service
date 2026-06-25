@@ -1,0 +1,18 @@
+[Unit]
+Description=MicroCP Web Hosting Control Panel
+After=network.target mysql.service nginx.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/microcp
+ExecStart=/opt/microcp/microcp
+Restart=always
+RestartSec=5
+Environment=GIN_MODE=release
+EnvironmentFile=-/etc/microcp/config.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
